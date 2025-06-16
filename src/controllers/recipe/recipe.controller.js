@@ -5,11 +5,28 @@ const mongoose = require('mongoose');
 // Get all recipes
 const getAllRecipes = async (req, res) => {
   try {
-    const payload = await Recipe.find().populate('author', 'name email');
+    const allRecipes = await Recipe.find().populate('author', 'name email');
+
+    let favoriteIds = [];
+
+    // Only fetch favorites if the user is logged in
+    if (req.userId) {
+      const user = await User.findById(req.userId);
+      if (user && user.savedRecipes) {
+        favoriteIds = user.savedRecipes.map((id) => id.toString());
+      }
+    }
+
+    const sorted = allRecipes.sort((a, b) => {
+      const aFav = favoriteIds.includes(a._id.toString());
+      const bFav = favoriteIds.includes(b._id.toString());
+      return aFav === bFav ? 0 : aFav ? -1 : 1;
+    });
+
     res.status(200).json({
       status: 'success',
       message: 'Recipes retrieved successfully',
-      payload,
+      payload: sorted,
     });
   } catch (error) {
     res.status(500).json({
@@ -194,24 +211,32 @@ const saveRecipeToFavorites = async (req, res) => {
     }
 
     const user = await User.findById(req.userId);
-    if (!user.savedRecipes.includes(id)) {
+    const index = user.savedRecipes.indexOf(id);
+
+    if (index > -1) {
+      // Unfavorite: remove it
+      user.savedRecipes.splice(index, 1);
+    } else {
+      // Favorite: add it
       user.savedRecipes.push(id);
-      await user.save();
     }
+
+    await user.save();
 
     res.status(200).json({
       status: 'success',
-      message: 'Recipe saved to favorites',
+      message: index > -1 ? 'Recipe removed from favorites' : 'Recipe saved to favorites',
       payload: user.savedRecipes,
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      message: 'Failed to save recipe',
+      message: 'Failed to toggle favorite',
       error: error.message,
     });
   }
 };
+
 
 const commentOnRecipe = async (req, res) => {
   const { id } = req.params;
